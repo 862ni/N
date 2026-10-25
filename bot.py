@@ -3,60 +3,26 @@ import re
 import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-Application,
-CommandHandler,
-CallbackQueryHandler,
-MessageHandler,
-ContextTypes,
-filters,
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
-logging.basicConfig(
-format=”%(asctime)s - %(name)s - %(levelname)s - %(message)s”,
-level=logging.INFO,
-)
-
-logger = logging.getLogger(name)
-
-BOT_TOKEN = os.environ.get(“BOT_TOKEN”, “”)
+BOT_TOKEN = os.environ.get(“BOT_TOKEN”)
 
 if not BOT_TOKEN:
-raise RuntimeError(
-“BOT_TOKEN is missing. Add it in Render Environment Variables.”
-)
+raise RuntimeError(“Missing BOT_TOKEN in Render environment variables”)
 
-Store temporary interaction state for each Telegram user.
+logging.basicConfig(level=logging.INFO)
 
 user_states = {}
 
-def main_keyboard():
-keyboard = [
-[
-InlineKeyboardButton(
-“🔑 فحص صيغة اليوزر”,
-callback_data=“check”,
-)
-],
-[
-InlineKeyboardButton(
-“📝 إدخال يوزر جديد”,
-callback_data=“username”,
-)
-],
-[
-InlineKeyboardButton(
-“ℹ️ معلومات البوت”,
-callback_data=“info”,
-)
-],
-]
-
-return InlineKeyboardMarkup(keyboard)
+def make_keyboard():
+return InlineKeyboardMarkup([
+[InlineKeyboardButton(“🔎 فحص اليوزر”, callback_data=“check”)],
+[InlineKeyboardButton(“📝 اختيار يوزر جديد”, callback_data=“change”)],
+[InlineKeyboardButton(“ℹ️ معلومات”, callback_data=“info”)],
+])
 
 def valid_username(username):
-if username.startswith(”@”):
-username = username[1:]
+username = username.lstrip(”@”)
 
 if not 1 <= len(username) <= 24:
     return False
@@ -66,24 +32,16 @@ if username.endswith("."):
     return False
 return True
 
-async def start(
-update: Update,
-context: ContextTypes.DEFAULT_TYPE,
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 await update.message.reply_text(
-“أهلًا بك في بوت إدارة يوزر تيك توك 👋\n\n”
-“اختر الخدمة التي تريدها من القائمة:\n\n”
-“🔑 فحص صيغة اسم المستخدم\n”
-“📝 إدخال اسم مستخدم جديد\n\n”
-“⚠️ هذا البوت لا يغيّر اليوزر فعليًا، “
-“ولا يحتاج إلى توكن حساب تيك توك.”,
-reply_markup=main_keyboard(),
+“أهلًا بك في بوت اليوزرات 👋\n\n”
+“اختر الخدمة المطلوبة من الأزرار أدناه.\n\n”
+“ملاحظة: هذا البوت يفحص صيغة اليوزر فقط، “
+“ولا يغيّر اليوزر داخل تيك توك.”,
+reply_markup=make_keyboard()
 )
 
-async def handle_buttons(
-update: Update,
-context: ContextTypes.DEFAULT_TYPE,
-):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 query = update.callback_query
 await query.answer()
 
@@ -91,82 +49,62 @@ user_id = query.from_user.id
 if query.data == "check":
     user_states[user_id] = "check"
     await query.message.reply_text(
-        "🔎 أرسل اسم المستخدم لفحص صيغته.\n\n"
-        "مثال: my_username\n\n"
-        "لا ترسل كلمة المرور أو توكن حسابك."
+        "🔎 أرسل اليوزر لفحص صيغته.\n"
+        "مثال: my_username"
     )
-elif query.data == "username":
-    user_states[user_id] = "username"
+elif query.data == "change":
+    user_states[user_id] = "change"
     await query.message.reply_text(
-        "📝 أرسل اليوزر الجديد الذي تريده.\n\n"
-        "مثال: my_new_username\n\n"
-        "ملاحظة: سيتم فحص الصيغة فقط، "
-        "ولن يتغير اليوزر داخل تيك توك."
+        "📝 أرسل اليوزر الذي تريد استخدامه.\n"
+        "مثال: new_username"
     )
 elif query.data == "info":
     await query.message.reply_text(
         "ℹ️ معلومات البوت\n\n"
         "• فحص صيغة اسم المستخدم.\n"
-        "• استقبال اسم مستخدم مقترح.\n"
-        "• لا يستقبل توكن تيك توك.\n"
-        "• لا يتحقق من توفر اليوزر.\n"
-        "• لا يغيّر اليوزر تلقائيًا.\n\n"
-        "لتغيير اليوزر فعليًا، استخدم تطبيق "
-        "تيك توك الرسمي."
+        "• استقبال يوزر مقترح.\n"
+        "• لا يحتاج توكن تيك توك.\n"
+        "• لا يفحص توفر اليوزر فعليًا.\n"
+        "• لا يغيّر اليوزر تلقائيًا."
     )
 
-async def handle_text(
-update: Update,
-context: ContextTypes.DEFAULT_TYPE,
-):
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 user_id = update.effective_user.id
 state = user_states.get(user_id)
 
 if state is None:
-    await update.message.reply_text(
-        "اكتب /start لعرض قائمة البوت."
-    )
+    await update.message.reply_text("أرسل /start لبدء الاستخدام.")
     return
-username = update.message.text.strip()
-if username.startswith("@"):
-    username = username[1:]
+username = update.message.text.strip().lstrip("@")
 if not valid_username(username):
     await update.message.reply_text(
-        "❌ صيغة اليوزر غير صحيحة.\n\n"
-        "استخدم الأحرف الإنجليزية والأرقام "
-        "والنقطة والشرطة السفلية، "
-        "وبحد أقصى 24 حرفًا.\n\n"
-        "حاول مرة أخرى."
+        "❌ صيغة اليوزر غير صحيحة.\n"
+        "استخدم الحروف الإنجليزية والأرقام والنقطة "
+        "والشرطة السفلية، بحد أقصى 24 حرفًا."
     )
     return
 if state == "check":
-    await update.message.reply_text(
-        f"✅ صيغة اليوزر @{username} صحيحة.\n\n"
-        "⚠️ هذا لا يعني أن اليوزر متاح؛ "
-        "البوت لا يفحص التوفر الفعلي."
+    message = (
+        "✅ صيغة اليوزر صحيحة.\n"
+        "اليوزر: @" + username + "\n\n"
+        "هذا لا يؤكد أن اليوزر متاح."
     )
-elif state == "username":
-    await update.message.reply_text(
-        f"📝 اليوزر الذي اخترته: @{username}\n\n"
-        "لم يتم تغيير اليوزر في تيك توك.\n"
-        "يمكنك تغييره من ملفك الشخصي "
-        "داخل تطبيق تيك توك الرسمي."
+else:
+    message = (
+        "📝 اليوزر المطلوب: @" + username + "\n\n"
+        "لم يتم تغيير اليوزر في تيك توك. "
+        "يمكنك تغييره من إعدادات الملف الشخصي "
+        "في تطبيق تيك توك الرسمي."
     )
 user_states.pop(user_id, None)
-await update.message.reply_text(
-    "اختر خدمة أخرى:",
-    reply_markup=main_keyboard(),
-)
+await update.message.reply_text(message, reply_markup=make_keyboard())
 
-async def cancel(
-update: Update,
-context: ContextTypes.DEFAULT_TYPE,
-):
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 user_states.pop(update.effective_user.id, None)
 
 await update.message.reply_text(
-    "تم إلغاء العملية. ✅",
-    reply_markup=main_keyboard(),
+    "تم إلغاء العملية.",
+    reply_markup=make_keyboard()
 )
 
 def main():
@@ -174,16 +112,9 @@ app = Application.builder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("cancel", cancel))
-app.add_handler(
-    CallbackQueryHandler(handle_buttons)
-)
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_text,
-    )
-)
-logger.info("Telegram bot is starting...")
+app.add_handler(CallbackQueryHandler(button_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+print("Bot started successfully")
 app.run_polling()
 
 if name == “main”:
